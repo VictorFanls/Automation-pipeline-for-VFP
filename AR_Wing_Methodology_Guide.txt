@@ -1,0 +1,146 @@
+
+================================================================================
+W I N G   A R   G U I D E
+Change Aspect Ratio While Preserving Dihedral & Sweep
+
+
+-------------------------------------------------------------------------------
+1) GOAL
+-------------------------------------------------------------------------------
+• Goal: Produce wing geometries at various Aspect Ratios (AR) and generate
+  accurate 3D surfaces (STL / comparison image) for analysis.
+• Constraints:
+  - Preserve dihedral and sweep angles.
+  - Default: preserve wing area S while changing AR (other modes available).
+• Invariant:
+  - Non-dimensional airfoil shape (thickness/camber distribution) at every
+    spanwise station remains unchanged.
+
+-------------------------------------------------------------------------------
+2) INPUT FILES
+-------------------------------------------------------------------------------
+A) .GEO (geometry)
+   For each spanwise station:
+     [ y, z_off, chord, x_le ]
+     [ 0, nu, nl, 0.0, 0.0 ]
+     (nu+nl) lines of (x, z): typically upper 0→1 then lower 0→1.
+
+   Special case: some files start without a header at the root; they begin
+   with the count line (root defaults to y=0, z_off=0, chord=1, x_le=0).
+
+B) .map (auxiliary/control)
+   Not the geometry source; updated "best-effort" to stay consistent (e.g. Y1,
+   Y2, X3, X4, etc.).
+
+-------------------------------------------------------------------------------
+3) HOW AR IS CHANGED — SCALING STRATEGY  （Please double check）
+-------------------------------------------------------------------------------
+Definition:
+   AR = b^2 / S
+
+We scale spanwise (k_y) and chordwise (k_c):
+
+   y      ← k_y · y
+   chord  ← k_c · chord
+   (angle preservation)
+   x_le   ← k_y · x_le    → keeps sweep slope dx_le/dy unchanged
+   z_off  ← k_y · z_off   → keeps dihedral slope dz_off/dy unchanged
+
+Area, span, and AR after scaling:
+   S' = k_y · k_c · S
+   b' = k_y · b
+   AR' = (k_y/k_c) · AR
+
+A) Area-preserving (DEFAULT):
+   k_y = sqrt(AR_target / AR_0),   k_c = 1 / k_y
+
+B) Span-preserving:
+   k_y = 1,                         k_c = AR_0 / AR_target
+
+C) Chord-preserving:
+   k_c = 1,                         k_y = AR_target / AR_0
+
+All modes can preserve angles by scaling x_le and z_off with k_y.
+
+-------------------------------------------------------------------------------
+4) ACCURATE 3D RECONSTRUCTION (ESSENTIAL STEPS)
+-------------------------------------------------------------------------------
+1. Parse each station: (y, z_off, chord, x_le) and its non-dimensional (x, z).
+2. Close the airfoil loop (upper then reversed lower) and resample by arc length
+   to get a smooth, uniform perimeter.
+3. Convert to body coordinates:
+       X = x_le + chord · x
+       Y = y
+       Z = z_off + chord · z
+4. Mirror about Y to create the opposite half-wing.
+5. Skin between consecutive stations (ring-to-ring) and triangulate.
+6. Export ASCII STL and/or render a clean wireframe comparison.
+
+-------------------------------------------------------------------------------
+5) VALIDATION CHECKS
+-------------------------------------------------------------------------------
+• AR Hit: compute b' = 2·max(y), S' via trapezoids (half-wing then ×2), confirm
+  AR' = b'^2 / S' matches target.
+• Angle Invariance: least-squares slopes
+      sweep  slope ≈ dx_le/dy
+      dihedral slope ≈ dz_off/dy
+  should match the baseline within numerical tolerance.
+• Non-dimensional airfoil invariance: compare baseline vs. new at each station
+  (normalized by chord and offsets) → max/mean differences ~ 0.0 (float tol.).
+
+-------------------------------------------------------------------------------
+6) SCRIPTS & SINGLE-COMMAND WORKFLOW
+-------------------------------------------------------------------------------
+Place all three scripts beside your .GEO/.map:
+  • wing_ar_param.py  – parameterize AR → new .GEO/.map
+  • geo_to_3d.py      – accurate 3D + STL (optional preview)
+  • run_all.py        – batch AR → .GEO/.map → STL → comparison image
+
+RECOMMENDED (area-preserving + angles preserved):
+    python .\run_all.py .\Saab_new.GEO .\Saab_new.map .\out_keep_angles --ars 7 8 9 10 --preserve area --keep-angles --sweep fixed --stl --compare --n 220 --label Baseline
+
+
+Notes:
+  • --ars takes multiple AR targets, space-separated.
+  • --preserve: area | span | chord.
+  • --keep-angles: preserves dihedral & sweep angles.
+  • --sweep fixed pairs well with --keep-angles.
+  • --stl exports a clean STL per case + baseline.
+  • --compare writes compare.png (baseline + all ARs).
+  • --n controls airfoil resample density (↑ for finer mesh).
+  • Ensure ASCII double dashes -- (not em-dash).
+
+
+• “Span only change”: use --preserve-chord --keep-angles → span changes, chord
+  and absolute offsets fixed; area S changes accordingly.
+• Half-wing or single-surface exports: disable mirroring or filter faces.
+• Robustness: the upper/lower split is automatically detected; for unusual
+  profiles, visually inspect.
+
+-------------------------------------------------------------------------------
+7) INDIVIDUAL SCRIPTS
+-------------------------------------------------------------------------------
+A) wing_ar_param.py
+     python wing_ar_param.py <input.GEO> <input.map> <target_AR> <out_prefix> \
+       [--preserve-area | --preserve-span | --preserve-chord] \
+       [--sweep scale | fixed] \
+       [--keep-angles]
+
+   Example (area-preserving + angles preserved):
+     python wing_ar_param.py Saab_new.GEO Saab_new.map 9 out_keep_angles\Saab_new_AR9 --preserve-area --sweep fixed --keep-angles
+
+B) geo_to_3d.py
+     python geo_to_3d.py <input.GEO> <input.map> <out_prefix> [--n 220] [--no-plot]
+
+   Example:
+     python geo_to_3d.py out_keep_angles\Saab_new_AR9.GEO Saab_new.map out_keep_angles\wing_AR9 --n 220 --no-plot
+
+C) run_all.py (pipeline)
+     python run_all.py <input.GEO> <input.map> <out_dir> --ars 7 8 9 10 \
+       [--preserve area|span|chord] [--keep-angles] [--sweep scale|fixed] \
+       [--stl] [--compare] [--n 220] [--label Baseline]
+
+   Example (recommended):
+     python run_all.py Saab_new.GEO Saab_new.map out_keep_angles --ars 7 8 9 10 --preserve area --keep-angles --sweep fixed --stl --compare --n 220 --label Baseline
+
+-------------------------------------------------------------------------------
